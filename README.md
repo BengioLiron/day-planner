@@ -103,7 +103,7 @@ Each release, either way:
 - **On GitHub:** open the repository's **Actions** tab → **Release desktop app** → **Run workflow**, enter the version (for example `1.0.1`), and click **Run workflow**.
 - **From a terminal:** `git tag v1.0.1` then `git push origin v1.0.1`.
 
-GitHub Actions then runs the tests, builds the installer on Windows with that version, and publishes it as a GitHub Release. Progress shows in the repository's **Actions** tab, and takes about 10 minutes.
+GitHub Actions then runs the tests, builds the installer on Windows with that version, and publishes it as a GitHub Release. The release stays a draft until every file is uploaded, so installed apps never see a half-finished one. If a run fails, run it again with the same version: it picks up its own draft. Progress shows in the repository's **Actions** tab, and takes about 10 minutes.
 
 - **First time:** download `Day-Planner-Setup-1.0.0.exe` from the release and install it. Only installers built this way know where to look for updates.
 - **After that:** each new release (`1.0.1`, `1.1.0`, …) is picked up automatically. The app checks when it starts and every 6 hours, downloads the update in the background, and shows **"Version x is ready. Restart to update"**. If you ignore it, the update installs the next time you quit. You can also choose **Check for updates** in the tray menu.

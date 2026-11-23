@@ -47,10 +47,43 @@ jobs:
             echo "::error::Version must look like 1.0.1 (got '$VERSION')"
             exit 1
           fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           cd apps/desktop && npm pkg set version="$VERSION"
           echo "Building Day Planner $VERSION"
 
-      - name: Build installer and publish release
+      # The release starts as a draft, so the app never sees it half-uploaded.
+      - name: Create a draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="v$VERSION"
+          DRAFT=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null || echo none)
+          if [ "$DRAFT" = "false" ]; then
+            echo "::error::Release $TAG is already published. Run the workflow again with a higher version."
+            exit 1
+          fi
+          if [ "$DRAFT" = "true" ]; then
+            echo "Reusing the draft left by an earlier run of $TAG."
+            exit 0
+          fi
+          gh release create "$TAG" --draft --target "$GITHUB_SHA" \
+            --title "Day Planner $VERSION" \
+            --notes "Download Day-Planner-Setup-$VERSION.exe below and run it. Installed copies update to this version automatically."
+
+      - name: Build the installer and upload it to the draft
         run: pnpm --filter day-planner release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Publishing creates the version tag on the commit that was built.
+      - name: Publish the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view "v$VERSION" --json assets --jq '.assets[].name' | tee assets.txt
+          grep -qx "latest.yml" assets.txt || { echo "::error::latest.yml is missing, so installed apps couldn't update."; exit 1; }
+          gh release edit "v$VERSION" --draft=false --latest

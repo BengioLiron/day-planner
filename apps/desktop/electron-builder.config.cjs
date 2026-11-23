@@ -25,5 +25,6 @@ module.exports = {
     artifactName: "Day-Planner-Setup-${version}.${ext}",
     deleteAppDataOnUninstall: false,
   },
-  publish: owner && repo ? [{ provider: "github", owner, repo, releaseType: "release" }] : null,
+  // Uploads go into the draft release the workflow creates; the workflow publishes it afterwards.
+  publish: owner && repo ? [{ provider: "github", owner, repo, releaseType: "draft" }] : null,
 };
