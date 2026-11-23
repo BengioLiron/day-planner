@@ -23,7 +23,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, timeoutMs = 25_000): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${BASE}${path}`, {
@@ -31,7 +31,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       credentials: "include",
       headers: body ? { "Content-Type": "application/json" } : undefined,
       body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(25_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch {
     throw new ApiError(0, "offline");
@@ -54,7 +54,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   get: <T>(path: string) => request<T>("GET", path),
-  post: <T>(path: string, body: unknown) => request<T>("POST", path, body),
+  post: <T>(path: string, body: unknown, timeoutMs?: number) => request<T>("POST", path, body, timeoutMs),
   del: (path: string) => request<void>("DELETE", path),
 };
 

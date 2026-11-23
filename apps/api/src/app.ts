@@ -130,7 +130,12 @@ app.post("/api/planner/breakdown", async (c) => {
   const user = await store.getUser(c.get("userId"));
   if (!user.ai) throw new HTTPException(409, { message: "No AI model is connected." });
   const conn = { provider: user.ai.provider, model: user.ai.model, apiKey: decrypt(user.ai.apiKey) };
-  return c.json(await breakdownMission(conn, req.input, req.history, req.context));
+  return c.json(
+    await breakdownMission(conn, req.input, req.history, req.context, {
+      research: req.research ?? null,
+      previousPlan: req.previousPlan ?? null,
+    }),
+  );
 });
 
 /* ---------------- Calendar ---------------- */

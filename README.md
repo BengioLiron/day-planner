@@ -7,7 +7,12 @@ A personal task manager that plans your day around your calendar. It reads your 
 - **My tasks:** add, edit, delete (with undo), and mark done (with undo). Tasks have a name, date and optional time, importance, project, time estimate and notes. Press `Q` anywhere to add a task.
 - **Today:** a recommended plan for the rest of the working day, placed between calendar events, with a reason for each pick. *Add to calendar* writes a task into the calendar as a time block. *Not today* sets a task aside.
 - **Projects:** create, archive and restore projects, with progress shown for each.
-- **AI planner:** describe a goal and review the proposed tasks (edit, remove, re-date) before saving them as a project. It may ask up to 3 clarifying questions first.
+- **AI planner agent:** describe a goal and it plans it the way a person would:
+  - **Researches real procedures.** When the goal depends on real-world facts (a permit, an application, a government process), it searches the web with your model's built-in search, prefers official sites, and shows what it found with links. Goals like "clean the garage" skip this step.
+  - **Fits your real schedule.** It looks up your actual free time slots and the tasks you already have before choosing dates.
+  - **Explains each step.** Every step can carry a source link, a note (documents to bring, where to go) and "after step N" when it depends on earlier ones. Anything unclear in the sources shows up under "Worth checking".
+  - **Refine by chat.** Ask "move everything to next week" or "fewer steps" and it updates the plan without searching again.
+  - You review everything (edit, remove, re-date) before it's saved as a project. Source links and dependencies are kept in each task's notes.
 - **Settings:** language, theme, working hours, days off, buffer around meetings, unplanned time, calendar connection, AI model and key, export.
 - **Hebrew and English,** with full right-to-left layout.
 - **Offline-first:** data lives in the app's storage (IndexedDB). Changes are queued and pushed to the server when it's reachable.

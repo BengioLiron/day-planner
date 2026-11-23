@@ -1,7 +1,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateText, type LanguageModel } from "ai";
+import { generateText, type LanguageModel, type ToolSet } from "ai";
 import type { AiConnection } from "@planner/core";
 
 /**
@@ -17,6 +17,30 @@ export function modelFor(conn: AiConnection): LanguageModel {
       return createAnthropic({ apiKey: conn.apiKey })(conn.model);
     case "google":
       return createGoogleGenerativeAI({ apiKey: conn.apiKey })(conn.model);
+  }
+}
+
+/**
+ * Each provider's own web search (and page reading, where offered). They run
+ * on the provider's side with the user's key; no other service is involved.
+ * They are used in a separate request from the app's own tools, because some
+ * providers don't allow built-in search and app tools in the same request.
+ */
+export function researchToolsFor(conn: AiConnection): ToolSet {
+  switch (conn.provider) {
+    case "openai":
+      return { web_search: createOpenAI({ apiKey: conn.apiKey }).tools.webSearch({}) };
+    case "anthropic": {
+      const tools = createAnthropic({ apiKey: conn.apiKey }).tools;
+      return {
+        web_search: tools.webSearch_20260318({ maxUses: 5 }),
+        web_fetch: tools.webFetch_20260318({ maxUses: 4 }),
+      };
+    }
+    case "google": {
+      const tools = createGoogleGenerativeAI({ apiKey: conn.apiKey }).tools;
+      return { google_search: tools.googleSearch({}), url_context: tools.urlContext({}) };
+    }
   }
 }
 

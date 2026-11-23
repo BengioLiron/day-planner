@@ -85,7 +85,7 @@ describe("planner output", () => {
       },
       false,
     );
-    expect(r).toEqual({
+    expect(r).toMatchObject({
       type: "plan",
       projectName: "Portfolio",
       summary: "Ship it",
@@ -99,7 +99,7 @@ describe("planner output", () => {
     ).toThrow(/empty plan/);
     expect(
       normalize({ type: "questions", questions: ["When?", "Budget?"], projectName: "", summary: "", tasks: [] }, false),
-    ).toEqual({ type: "questions", questions: ["When?", "Budget?"] });
+    ).toMatchObject({ type: "questions", questions: ["When?", "Budget?"] });
   });
 });
 
@@ -153,55 +153,150 @@ describe("routes", () => {
   });
 });
 
-describe("breakdownMission with a stand-in model", async () => {
+describe("the planner agent with stand-in models", async () => {
   const { MockLanguageModelV4 } = await import("ai/test");
-  const { breakdownMission } = await import("./ai/planner.js");
+  const { breakdownMission, normalize } = await import("./ai/planner.js");
   const conn = { provider: "anthropic" as const, model: "test", apiKey: "unused-key" };
-  const context = { today: "2026-10-18", language: "he" as const, dayLoads: [], existingProjects: [] };
+  const context = {
+    today: "2026-10-18",
+    language: "he" as const,
+    dayLoads: [],
+    existingProjects: [],
+    freeSlots: [
+      { date: "2026-10-19", slots: ["09:00-10:00"], freeMinutes: 60 },
+      { date: "2026-10-20", slots: ["09:00-12:00", "14:00-15:00"], freeMinutes: 240 },
+    ],
+    openTasks: [{ name: "דוח רבעוני", dueDate: "2026-10-19", importance: "high" as const, durationMin: 120, project: null }],
+  };
+  const usage = {
+    inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+    outputTokens: { total: 10, text: 10, reasoning: 0 },
+  };
+  type Content = Awaited<ReturnType<InstanceType<typeof MockLanguageModelV4>["doGenerate"]>>["content"];
 
-  function modelReturning(obj: unknown, seen: { system?: string } = {}) {
-    return new MockLanguageModelV4({
+  /** A model that answers each call with the next scripted reply, and records what it was sent. */
+  function scripted(replies: Content[]) {
+    const calls: { system: string; prompt: unknown[] }[] = [];
+    const model = new MockLanguageModelV4({
       doGenerate: async (opts) => {
         const sys = opts.prompt.find((m) => m.role === "system");
-        seen.system = typeof sys?.content === "string" ? sys.content : "";
+        calls.push({ system: typeof sys?.content === "string" ? sys.content : "", prompt: opts.prompt });
+        const content = replies[Math.min(calls.length - 1, replies.length - 1)]!;
+        const calledTool = content.some((c) => c.type === "tool-call");
         return {
-          content: [{ type: "text", text: JSON.stringify(obj) }],
-          finishReason: { unified: "stop", raw: "stop" },
-          usage: {
-            inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
-            outputTokens: { total: 10, text: 10, reasoning: 0 },
-          },
+          content,
+          finishReason: calledTool ? { unified: "tool-calls", raw: "tool_use" } : { unified: "stop", raw: "stop" },
+          usage,
           warnings: [],
         };
       },
     });
+    return { model, calls };
   }
+  const text = (t: string) => [{ type: "text" as const, text: t }];
+  const plan = {
+    type: "plan",
+    questions: [],
+    projectName: "תו חניה",
+    summary: "להוציא תו חניה אזורי",
+    tasks: [
+      { name: "לבדוק זכאות", notes: "", dueDate: "2026-10-19", importance: "high", durationMin: 20, sourceUrl: "https://www.tel-aviv.gov.il/parking", dependsOn: [] },
+      { name: "להגיש בקשה", notes: "צילום רישיון רכב", dueDate: "2026-10-20", importance: "high", durationMin: 30, sourceUrl: "", dependsOn: [1, 2, 7] },
+    ],
+    caveats: ["האגרה לא צוינה באתר"],
+  };
 
-  it("turns the model's JSON into a plan and asks for Hebrew", async () => {
-    const seen: { system?: string } = {};
+  it("researches a real-world goal, keeps the sources, and plans from them", async () => {
+    const research = scripted([
+      [
+        { type: "source", sourceType: "url", id: "s1", url: "https://www.tel-aviv.gov.il/parking", title: "תו חניה – עיריית תל אביב" },
+        ...text("1. בודקים זכאות באתר העירייה https://www.tel-aviv.gov.il/parking\n2. מגישים בקשה מקוונת."),
+      ],
+    ]);
+    const planner = scripted([text(JSON.stringify(plan))]);
+    const result = await breakdownMission(conn, { kind: "text", text: "תו חניה לתל אביב" }, [], context, {
+      models: { research: research.model, plan: planner.model },
+    });
+
+    expect(research.calls).toHaveLength(1);
+    expect(planner.calls[0]!.system).toContain("tel-aviv.gov.il/parking");
+    expect(planner.calls[0]!.system).toContain("Hebrew");
+    expect(result).toMatchObject({
+      type: "plan",
+      caveats: ["האגרה לא צוינה באתר"],
+      research: { sources: [{ url: "https://www.tel-aviv.gov.il/parking", title: "תו חניה – עיריית תל אביב" }] },
+      tasks: [{ sourceUrl: "https://www.tel-aviv.gov.il/parking" }, { dependsOn: [1] }],
+    });
+    expect(result.type === "plan" && result.tasks[1]!.sourceUrl).toBeFalsy();
+  });
+
+  it("skips research when the model says it isn't needed", async () => {
+    const research = scripted([text("NO_RESEARCH")]);
+    const planner = scripted([text(JSON.stringify({ ...plan, caveats: [] }))]);
+    const result = await breakdownMission(conn, { kind: "text", text: "לסדר את הארון" }, [], context, {
+      models: { research: research.model, plan: planner.model },
+    });
+    expect(result).toMatchObject({ type: "plan", research: null });
+    expect(planner.calls[0]!.system).toContain("never invent links");
+  });
+
+  it("looks at real free time with its tools before answering", async () => {
+    const planner = scripted([
+      [
+        { type: "tool-call", toolCallId: "t1", toolName: "find_free_slots", input: JSON.stringify({ from: "2026-10-19", to: "2026-10-25", minMinutes: 120 }) },
+        { type: "tool-call", toolCallId: "t2", toolName: "list_open_tasks", input: JSON.stringify({ from: "2026-10-19" }) },
+      ],
+      text(JSON.stringify(plan)),
+    ]);
+    await breakdownMission(conn, { kind: "text", text: "תו חניה" }, [], context, {
+      models: { research: scripted([text("NO_RESEARCH")]).model, plan: planner.model },
+    });
+    expect(planner.calls).toHaveLength(2);
+    const toolResults = JSON.stringify(planner.calls[1]!.prompt);
+    expect(toolResults).toContain("09:00-12:00");
+    expect(toolResults).not.toContain("09:00-10:00"); // the 60-minute gap is shorter than asked
+    expect(toolResults).toContain("דוח רבעוני");
+  });
+
+  it("refines a plan without searching again", async () => {
+    const research = scripted([text("should not be called")]);
+    const planner = scripted([text(JSON.stringify(plan))]);
+    const saved = { notes: "הערות", sources: [{ title: "עירייה", url: "https://www.tel-aviv.gov.il/parking" }] };
     const result = await breakdownMission(
       conn,
-      { kind: "text", text: "להשיק אתר" },
-      [],
+      { kind: "text", text: "תזיז הכל לשבוע הבא" },
+      [{ role: "user", content: "תו חניה" }, { role: "assistant", content: "תוכנית" }],
       context,
-      modelReturning(
-        {
-          type: "plan",
-          questions: [],
-          projectName: "אתר",
-          summary: "תוכנית",
-          tasks: [{ name: "לבחור דומיין", notes: "", dueDate: "2026-10-20", importance: "high", durationMin: 30 }],
-        },
-        seen,
-      ),
+      { research: saved, previousPlan: { projectName: "תו חניה", tasks: [] }, models: { research: research.model, plan: planner.model } },
     );
-    expect(result).toMatchObject({ type: "plan", projectName: "אתר", tasks: [{ name: "לבחור דומיין" }] });
-    expect(seen.system).toContain("Hebrew");
+    expect(research.calls).toHaveLength(0);
+    expect(planner.calls[0]!.system).toContain("asking for changes");
+    expect(JSON.stringify(planner.calls[0]!.prompt)).toContain("Current plan");
+    expect(result).toMatchObject({ research: saved });
+  });
+
+  it("cleans links and step numbers it can't trust", () => {
+    const result = normalize(
+      {
+        ...plan,
+        tasks: [
+          { ...plan.tasks[0]!, sourceUrl: "javascript:alert(1)", durationMin: 3, dueDate: "next week", dependsOn: [1] },
+          ...plan.tasks.slice(1),
+        ],
+      } as never,
+      { mustPlan: false },
+    );
+    expect(result.type === "plan" && result.tasks[0]).toMatchObject({ durationMin: 5, dueDate: null });
+    expect(result.type === "plan" && result.tasks[0]!.sourceUrl).toBeFalsy();
+    expect(result.type === "plan" && result.tasks[0]!.dependsOn).toBeFalsy();
   });
 
   it("routes audio through the voice slot, which answers 501 until v1.1", async () => {
+    const m = scripted([text("{}")]).model;
     await expect(
-      breakdownMission(conn, { kind: "audio", mimeType: "audio/webm", base64: "AAAA" }, [], context, modelReturning({})),
+      breakdownMission(conn, { kind: "audio", mimeType: "audio/webm", base64: "AAAA" }, [], context, {
+        models: { research: m, plan: m },
+      }),
     ).rejects.toMatchObject({ status: 501 });
   });
 });

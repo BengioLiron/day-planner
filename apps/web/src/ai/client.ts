@@ -2,11 +2,14 @@ import {
   addDays,
   BreakdownResultSchema,
   dayLoads,
+  freeSlotsAhead,
   parseDateKey,
   toDateKey,
   type BreakdownResult,
   type PlannerInput,
   type PlannerMessage,
+  type PlannerResearch,
+  type ProposedTask,
 } from "@planner/core";
 import { db, getSettings, type Language } from "../data/db";
 import { api, serverAvailable } from "../lib/api";
@@ -22,23 +25,54 @@ export interface PlannerResponse {
  * button sends { kind: "audio" } through this same function and the server
  * transcribes it before running the usual text path.
  */
-export async function runPlanner(input: PlannerInput, history: PlannerMessage[]): Promise<PlannerResponse> {
+export interface RefineState {
+  /** Research the agent did earlier in this conversation, so it doesn't search again. */
+  research?: PlannerResearch | null;
+  /** The plan as the user last saw it, when they ask for changes. */
+  previousPlan?: { projectName: string; tasks: ProposedTask[] } | null;
+}
+
+export async function runPlanner(
+  input: PlannerInput,
+  history: PlannerMessage[],
+  refine: RefineState = {},
+): Promise<PlannerResponse> {
   const settings = await getSettings();
   const today = toDateKey(new Date());
 
   if (settings.ai.connected && (await serverAvailable())) {
     const events = await db.events.toArray();
     const projects = await db.projects.where("status").equals("active").toArray();
-    const raw = await api.post<unknown>("/api/planner/breakdown", {
-      input,
-      history,
-      context: {
-        today,
-        language: settings.language,
-        dayLoads: dayLoads(today, 30, events, settings.planner),
-        existingProjects: projects.map((p) => p.name),
+    const projectName = new Map(projects.map((p) => [p.id, p.name]));
+    const open = (await db.tasks.toArray())
+      .filter((t) => !t.doneAt && !t.deletedAt)
+      .sort((a, b) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999"))
+      .slice(0, 100);
+    const raw = await api.post<unknown>(
+      "/api/planner/breakdown",
+      {
+        input,
+        history,
+        context: {
+          today,
+          language: settings.language,
+          dayLoads: dayLoads(today, 30, events, settings.planner),
+          existingProjects: projects.map((p) => p.name),
+          freeSlots: freeSlotsAhead(today, 45, events, settings.planner),
+          openTasks: open.map((t) => ({
+            name: t.name.slice(0, 200),
+            dueDate: t.dueDate ?? null,
+            importance: t.importance,
+            durationMin: t.durationMin ?? null,
+            project: (t.projectId && projectName.get(t.projectId)) || null,
+          })),
+        },
+        research: refine.research ?? null,
+        previousPlan: refine.previousPlan ?? null,
       },
-    });
+      // Searching the web and planning can take a couple of minutes.
+      240_000,
+    );
     return { result: BreakdownResultSchema.parse(raw), demo: false };
   }
 
