@@ -1,0 +1,25 @@
+{
+  "name": "day-planner",
+  "productName": "Day Planner",
+  "version": "1.0.0",
+  "description": "Your tasks, planned around your calendar.",
+  "private": true,
+  "main": "dist/main.cjs",
+  "author": "Day Planner",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "pnpm --filter web build && node build.mjs && electron .",
+    "dev": "node build.mjs && electron .",
+    "dist": "pnpm --filter web build && node build.mjs && electron-builder --win --config electron-builder.config.cjs --publish never",
+    "release": "pnpm --filter web build && node build.mjs && electron-builder --win --config electron-builder.config.cjs --publish always",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "44.8.0",
+    "electron-builder": "^26.15.3",
+    "electron-updater": "^6.8.9",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}
