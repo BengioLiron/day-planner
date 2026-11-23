@@ -1,11 +1,18 @@
 # Builds the Windows installer and publishes it as a GitHub Release.
-# Runs when you push a version tag, e.g.:  git tag v1.1.0 && git push origin v1.1.0
+# Start it either way:
+#   - On GitHub: Actions → Release desktop app → Run workflow, and enter a version (e.g. 1.0.1)
+#   - From a terminal: git tag v1.0.1 && git push origin v1.0.1
 # The installed app checks these releases and updates itself.
 name: Release desktop app
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 1.0.1. It must be higher than the last release."
+        required: true
 
 permissions:
   contents: write # create the release and upload the installer
@@ -28,10 +35,18 @@ jobs:
       - name: Run tests
         run: pnpm test
 
-      - name: Use the tag as the app version
+      - name: Set the app version
         shell: bash
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          # From the Run workflow box, or from the tag name (v1.0.1 → 1.0.1).
+          VERSION="${INPUT_VERSION:-$GITHUB_REF_NAME}"
+          VERSION="${VERSION#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must look like 1.0.1 (got '$VERSION')"
+            exit 1
+          fi
           cd apps/desktop && npm pkg set version="$VERSION"
           echo "Building Day Planner $VERSION"
 

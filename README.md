@@ -98,17 +98,15 @@ One-time setup:
 1. Create a **public** GitHub repository and push this folder to it. Secrets never go in the repository: `.env` files are ignored, and the desktop app keeps its keys on your PC.
 2. That's it. The workflow in `.github/workflows/release-desktop.yml` already has permission to publish releases.
 
-Each release:
+Each release, either way:
 
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
+- **On GitHub:** open the repository's **Actions** tab → **Release desktop app** → **Run workflow**, enter the version (for example `1.0.1`), and click **Run workflow**.
+- **From a terminal:** `git tag v1.0.1` then `git push origin v1.0.1`.
 
-GitHub Actions then runs the tests, builds the installer on Windows using the tag as the version, and publishes it as a GitHub Release. Progress shows in the repository's **Actions** tab, and takes about 10 minutes.
+GitHub Actions then runs the tests, builds the installer on Windows with that version, and publishes it as a GitHub Release. Progress shows in the repository's **Actions** tab, and takes about 10 minutes.
 
 - **First time:** download `Day-Planner-Setup-1.0.0.exe` from the release and install it. Only installers built this way know where to look for updates.
-- **After that:** each new tag (`v1.0.1`, `v1.1.0`, …) is picked up automatically. The app checks when it starts and every 6 hours, downloads the update in the background, and shows **"Version x is ready. Restart to update"**. If you ignore it, the update installs the next time you quit. You can also choose **Check for updates** in the tray menu.
+- **After that:** each new release (`1.0.1`, `1.1.0`, …) is picked up automatically. The app checks when it starts and every 6 hours, downloads the update in the background, and shows **"Version x is ready. Restart to update"**. If you ignore it, the update installs the next time you quit. You can also choose **Check for updates** in the tray menu.
 
 Version numbers must go up (`1.0.0` → `1.0.1` → `1.1.0`), or the app won't see the release as newer.
 
